@@ -78,7 +78,7 @@ input[type=text]::placeholder{color:rgba(255,255,255,.2);}
 </head>
 <body>
 
-<div id="sound-toggle" onclick="toggleMute()">🔊</div>
+<div id="sound-toggle">🔊</div>
 <div class="bg-layer">
   <div class="orb" style="width:600px;height:600px;background:#FF3CA0;opacity:.055;top:-200px;left:-150px;animation-duration:12s;"></div>
   <div class="orb" style="width:500px;height:500px;background:#00EEFF;opacity:.055;bottom:-150px;right:-100px;animation-duration:15s;animation-delay:-5s;"></div>
@@ -228,6 +228,7 @@ const mm = document.getElementById('minimap-c');
 const mmc = mm.getContext('2d');
 let rafId = null;
 let botCount = 1, botDiff = 'medium';
+const isMobile = /Mobi|Android|iPhone|iPad|Touch/i.test(navigator.userAgent) || navigator.maxTouchPoints > 1;
 
 /* ====================== UTILS ====================== */
 function showScreen(id){
@@ -247,9 +248,9 @@ function isInView(x,y){return x>camX-100&&x<camX+canvas.width+100&&y>camY-100&&y
 
 /* ====================== LOBBY ====================== */
 function hostGame(){
-  myName = (document.getElementById('name-in').value.trim().toUpperCase() || 'PLAYER').slice(0,12);
-  roomCode = genCode();
-  isHost = true; myId = 0;
+  myName=(document.getElementById('name-in').value.trim().toUpperCase()||'PLAYER').slice(0,12);
+  roomCode=genCode();
+  isHost=true; myId=0;
 
   const roomRef = ref(db, `rooms/${roomCode}`);
   set(roomRef, {
@@ -266,19 +267,19 @@ function hostGame(){
 }
 
 function gotoJoin(){
-  myName = (document.getElementById('name-in').value.trim().toUpperCase() || 'PLAYER').slice(0,12);
+  myName=(document.getElementById('name-in').value.trim().toUpperCase()||'PLAYER').slice(0,12);
   showScreen('screen-join');
 }
 
 function joinGame(){
-  roomCode = document.getElementById('code-in').value.trim().toUpperCase();
-  if(roomCode.length < 4) return toast('Enter a valid code!');
+  roomCode=document.getElementById('code-in').value.trim().toUpperCase();
+  if(roomCode.length<4){toast('Enter a valid code!');return;}
 
   const roomRef = ref(db, `rooms/${roomCode}`);
   runTransaction(roomRef, (room) => {
-    if(!room || room.phase !== 'lobby') return;
-    const count = Object.keys(room.players || {}).length;
-    if(count >= 4) return;
+    if(!room || room.phase!=='lobby') return;
+    const count = Object.keys(room.players||{}).length;
+    if(count>=4) return;
     const newId = count;
     room.players = room.players || {};
     room.players[newId] = mkPlayer(newId, myName);
@@ -297,16 +298,16 @@ function listenToRoom(){
   const roomRef = ref(db, `rooms/${roomCode}`);
   onValue(roomRef, (snap) => {
     gs = snap.val();
-    if(!gs){ toast('Room closed'); leaveGame(); return; }
-    if(gs.phase === 'lobby') updateLobbyUI();
-    if(gs.phase === 'playing' && !rafId) launchGame();
-    if(gs.phase === 'gameover') showGO();
+    if(!gs){toast('Room closed');leaveGame();return;}
+    if(gs.phase==='lobby') updateLobbyUI();
+    if(gs.phase==='playing' && !rafId) launchGame();
+    if(gs.phase==='gameover') showGO();
   });
 }
 
 function updateLobbyUI(){
   const g = document.getElementById('pGrid'); g.innerHTML = '';
-  for(let i = 0; i < 4; i++){
+  for(let i=0;i<4;i++){
     const p = gs?.players?.[i];
     const el = document.createElement('div');
     el.className = 'pslot' + (p ? ' on' : '');
@@ -329,7 +330,7 @@ function mkPlayer(id,name){
 
 /* ====================== BOT MODE ====================== */
 function goBotMode(){
-  myName = (document.getElementById('name-in').value.trim().toUpperCase() || 'PLAYER').slice(0,12);
+  myName=(document.getElementById('name-in').value.trim().toUpperCase()||'PLAYER').slice(0,12);
   showScreen('screen-bots');
 }
 function setBotCount(n){
@@ -359,7 +360,7 @@ function startGame(){
   update(ref(db, `rooms/${roomCode}`), {phase:'playing', timeLeft:GDUR});
 }
 
-/* ====================== LAUNCH ====================== */
+/* ====================== LAUNCH & LOOP ====================== */
 function launchGame(){
   showScreen('_none');
   canvas.classList.remove('hidden');
@@ -383,7 +384,6 @@ function launchGame(){
   loop(performance.now());
 }
 
-/* ====================== HOST TICK ====================== */
 function hostTick(dt){
   applyInput(0, inp);
   if(botMode) tickBots(dt);
@@ -445,7 +445,7 @@ function applyInput(pid, input){
   }
 }
 
-/* ====================== BOT AI (fixed) ====================== */
+/* ====================== BOT AI ====================== */
 const DIFF = {
   easy: {speedMult:0.28, thinkSec:2.2, shootRange:220, aimNoise:1.4, shootChance:0.2},
   medium: {speedMult:0.52, thinkSec:0.9, shootRange:420, aimNoise:0.5, shootChance:0.6},
@@ -667,6 +667,20 @@ function playAgain(){
   if(botMode){ startBotGame(); }
   else if(isHost){ update(ref(db, `rooms/${roomCode}`), {phase:'lobby'}); }
   else { toast('Waiting for host…',2500); }
+}
+
+function leaveGame(){
+  if(rafId){cancelAnimationFrame(rafId); rafId = null;}
+  if(roomCode){
+    const playerRef = ref(db, `rooms/${roomCode}/players/${myId}`);
+    remove(playerRef);
+  }
+  splats=[]; parts=[]; trails={}; bots=[]; gs=null; roomCode=null; isHost=false; botMode=false; myId=null;
+  canvas.classList.add('hidden');
+  document.getElementById('hud').classList.add('hidden');
+  document.getElementById('minimap-c').classList.add('hidden');
+  document.getElementById('fire-btn').style.display='none';
+  showScreen('screen-home');
 }
 
 /* ====================== VISUALS ====================== */
