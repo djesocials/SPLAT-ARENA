@@ -237,6 +237,7 @@ let remoteInputs={};
 let playersCache=null;
 let snapshots=[];
 let viewPlayers=null;
+let viewBullets=null;
 
 const clientId = Math.random().toString(36).slice(2,10);
 let roomCode='';
@@ -405,8 +406,12 @@ function clonePlayers(players){
   return players.map(p=>p?{...p}:null);
 }
 
+function cloneBullets(bullets){
+  return bullets.map(b=>b?{...b}:null);
+}
+
 function storeSnapshot(gsSnap, ts){
-  snapshots.push({t:ts, players:clonePlayers(gsSnap.players)});
+  snapshots.push({t:ts, players:clonePlayers(gsSnap.players), bullets:cloneBullets(gsSnap.bullets)});
   if(snapshots.length>6) snapshots.shift();
 }
 
@@ -447,10 +452,54 @@ function samplePlayers(targetT){
   });
 }
 
+function sampleBullets(targetT){
+  if(snapshots.length===0) return null;
+  let a=null, b=null;
+  for(let i=0;i<snapshots.length;i++){
+    const s=snapshots[i];
+    if(s.t<=targetT) a=s;
+    if(s.t>targetT){ b=s; break; }
+  }
+  if(!a) return cloneBullets(snapshots[0].bullets);
+  if(!b){
+    const dt=Math.min(0.16, (targetT-a.t)/1000);
+    return a.bullets.map(q=>{
+      if(!q) return null;
+      const nb={...q};
+      nb.x=q.x+(q.vx||0)*dt;
+      nb.y=q.y+(q.vy||0)*dt;
+      nb.life=(q.life||0)-dt;
+      return nb;
+    });
+  }
+  const span=b.t-a.t;
+  const t=span>0?(targetT-a.t)/span:0;
+  const mapA=new Map(a.bullets.map(bb=>[bb.id,bb]));
+  const mapB=new Map(b.bullets.map(bb=>[bb.id,bb]));
+  const ids=new Set([...mapA.keys(),...mapB.keys()]);
+  const out=[];
+  ids.forEach(id=>{
+    const p=mapA.get(id);
+    const q=mapB.get(id);
+    if(!p && !q) return;
+    const base=q||p;
+    if(!p || !q){ out.push({...base}); return; }
+    const nb={...q};
+    nb.x=lerp(p.x,q.x,t);
+    nb.y=lerp(p.y,q.y,t);
+    nb.vx=lerp(p.vx||0,q.vx||0,t);
+    nb.vy=lerp(p.vy||0,q.vy||0,t);
+    nb.life=lerp(p.life||0,q.life||0,t);
+    out.push(nb);
+  });
+  return out;
+}
+
 function updateView(){
-  if(isHost){ viewPlayers=null; return; }
+  if(isHost){ viewPlayers=null; viewBullets=null; return; }
   const targetT=Date.now()-70;
   viewPlayers=samplePlayers(targetT);
+  viewBullets=sampleBullets(targetT);
 }
 
 function getRenderPlayers(){
@@ -461,6 +510,11 @@ function getRenderPlayers(){
 function getRenderPlayer(id){
   const arr=getRenderPlayers();
   return arr[id];
+}
+
+function getRenderBullets(){
+  if(!gs) return [];
+  return (!isHost && viewBullets)?viewBullets:gs.bullets;
 }
 
 /* ------------------------------
@@ -550,6 +604,7 @@ function cleanupRoom(){
   playersCache=null;
   snapshots=[];
   viewPlayers=null;
+  viewBullets=null;
 }
 
 function syncPlayersFromDb(playersData){
@@ -1284,7 +1339,7 @@ function drawBullets(){
   const now=Date.now();
   ctx.save();
   ctx.globalCompositeOperation='lighter';
-  gs.bullets.forEach(b=>{
+  getRenderBullets().forEach(b=>{
     const col=COLORS[b.pid], r=b.big?BBRAD:BRAD;
     const spd=Math.hypot(b.vx,b.vy);
     const tl=r*5.5, tx=b.x-b.vx/spd*tl, ty=b.y-b.vy/spd*tl;
@@ -1303,7 +1358,7 @@ function drawBullets(){
 
 function drawPUs(){
   const now=Date.now();
-  gs.powerups.forEach(u=>{
+  (gs.powerups||[]).forEach(u=>{
     const col=PU_CLR[u.type], pulse=1+Math.sin(now*.004+u.id)*.13, r=22*pulse;
     ctx.save(); ctx.translate(u.x,u.y);
     ctx.shadowColor=col; ctx.shadowBlur=26;
